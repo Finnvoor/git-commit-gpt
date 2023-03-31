@@ -165,6 +165,14 @@ async fn main() {
                         .unwrap()
                         .wait()
                         .unwrap();
+                    if true {
+                        Command::new("git")
+                            .args(["commit", "--amend"])
+                            .spawn()
+                            .unwrap()
+                            .wait()
+                            .unwrap();
+                    }
                 }
             }
         }
