@@ -1,3 +1,4 @@
+use clap::Parser;
 use console::{style, Term};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent},
@@ -27,20 +28,24 @@ struct Message {
     content: String,
 }
 
-async fn get_suggested_commit_messages(diff: &str) -> Result<Vec<String>, reqwest::Error> {
+async fn get_suggested_commit_messages(
+    diff: &str,
+    prompt: &str,
+    model: &str,
+) -> Result<Vec<String>, reqwest::Error> {
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not found");
     let client = Client::new();
-    let prompt = format!("Given the following git diff, suggest a single commit message of no more than 50 characters:\n\n```\n{}\n```\n\nOutput only the commit message as it would be passed to `git commit`. Do not include an explanation, and do not wrap the message in quotation marks.", diff);
+    let content = format!("{}\nReturn only a single line of text no more than 50 characters. Do not include an explanation.\n\n```\n{}\n```", prompt, diff);
 
     let response = client
         .post("https://api.openai.com/v1/chat/completions")
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&serde_json::json!({
-            "model": "gpt-3.5-turbo",
+            "model": model,
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": content}
             ],
             "n": 5
         }))
@@ -114,8 +119,26 @@ fn select_commit_message(commit_messages: Vec<String>) -> Option<String> {
     Some(commit_messages[index].clone())
 }
 
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Arguments {
+    /// Don't amend after committing
+    #[arg(long)]
+    no_amend: bool,
+
+    /// A custom prompt to prefix the git diff with
+    #[arg(short, long)]
+    prompt: Option<String>,
+
+    /// The OpenAI model to use
+    #[arg(short, long)]
+    model: Option<String>,
+}
+
 #[tokio::main]
 async fn main() {
+    let args = Arguments::parse();
+
     let git_diff_output = Command::new("git")
         .args(&["--no-pager", "diff", "--staged"])
         .output()
@@ -142,7 +165,17 @@ async fn main() {
     pb.set_style(ProgressStyle::with_template("{spinner:.green} {wide_msg}").unwrap());
     pb.set_message("Fetching suggested commit messages...");
 
-    let commit_messages_result = get_suggested_commit_messages(&git_diff).await;
+    let prompt = match args.prompt {
+        Some(prompt) => prompt,
+        None => "Given the following git diff, suggest a commit message that can be passed to `git commit`.".to_string()
+    };
+
+    let model = match args.model {
+        Some(model) => model,
+        None => "gpt-3.5-turbo".to_string(),
+    };
+
+    let commit_messages_result = get_suggested_commit_messages(&git_diff, &prompt, &model).await;
 
     pb.finish_and_clear();
 
@@ -165,7 +198,7 @@ async fn main() {
                         .unwrap()
                         .wait()
                         .unwrap();
-                    if true {
+                    if !args.no_amend {
                         Command::new("git")
                             .args(["commit", "--amend"])
                             .spawn()
