@@ -1,7 +1,7 @@
 use console::{style, Term};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent},
-    terminal::{self},
+    terminal,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
@@ -30,7 +30,6 @@ struct Message {
 async fn get_suggested_commit_messages(diff: &str) -> Result<Vec<String>, reqwest::Error> {
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not found");
     let client = Client::new();
-
     let prompt = format!("Given the following git diff, suggest a single commit message of no more than 50 characters:\n\n```\n{}\n```\n\nOutput only the commit message as it would be passed to `git commit`. Do not include an explanation, and do not wrap the message in quotation marks.", diff);
 
     let response = client
@@ -63,7 +62,6 @@ async fn get_suggested_commit_messages(diff: &str) -> Result<Vec<String>, reqwes
             result.to_string()
         })
         .collect();
-
     Ok(messages)
 }
 
@@ -73,7 +71,6 @@ fn select_commit_message(commit_messages: Vec<String>) -> Option<String> {
 
     loop {
         println!("Select a commit message:");
-
         for (i, msg) in commit_messages.iter().enumerate() {
             if i == index {
                 println!("{} {}", style(">").bold().green(), msg);
@@ -83,7 +80,11 @@ fn select_commit_message(commit_messages: Vec<String>) -> Option<String> {
         }
 
         terminal::enable_raw_mode().unwrap();
-        match event::read().unwrap() {
+        let key_event = event::read().unwrap();
+        terminal::disable_raw_mode().unwrap();
+        term.clear_last_lines(commit_messages.len() + 1).unwrap();
+
+        match key_event {
             Event::Key(KeyEvent {
                 code: KeyCode::Up, ..
             }) => {
@@ -102,23 +103,14 @@ fn select_commit_message(commit_messages: Vec<String>) -> Option<String> {
             Event::Key(KeyEvent {
                 code: KeyCode::Enter,
                 ..
-            }) => {
-                break;
-            }
+            }) => break,
             Event::Key(KeyEvent {
                 code: KeyCode::Esc, ..
-            }) => {
-                terminal::disable_raw_mode().unwrap();
-                term.clear_last_lines(commit_messages.len() + 1).unwrap();
-                return None;
-            }
+            }) => return None,
             _ => {}
         }
-        terminal::disable_raw_mode().unwrap();
-        term.clear_last_lines(commit_messages.len() + 1).unwrap();
     }
-    terminal::disable_raw_mode().unwrap();
-    term.clear_last_lines(commit_messages.len() + 1).unwrap();
+
     Some(commit_messages[index].clone())
 }
 
